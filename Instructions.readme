@@ -1,0 +1,25 @@
+﻿==== SAS ====
+Stability Assist System
+Maintain orientation while in orbit.
+
+Author: DFPercush
+github.com/DFPercush
+Buy me a coffee: ko-fi.com/DFPercush
+
+To use:
+See below and set 'ControlBlock' to the name of your
+cockpit, remote control, flight seat, helm, etc.
+Make sure your craft has some gyros and power, and
+you should be good to go.
+
+Commands:
+off / stop:          Halt program and turn off gyro overrides.
+pro / prograde:      The direction your ship is moving. Forward.
+retro / retrograde:  Facing backwards along your direction of movement.
+norm / normal:       Perpendicular to the plane of your orbit.
+                     If you are moving east, normal would be north.
+anti / antinormal:   Opposite normal. If moving east, antinormal is south.
+out:                 Radial out. Facing perpendicular to your orbit but
+                     in the same plane. Basically, away from the planet.
+in:                  Radial in. Towards the ground.
+disp:                Display debugging information.

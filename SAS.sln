@@ -1,0 +1,22 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.32002.261
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SAS", "SAS.csproj", "{FAABBDE7-B5B2-4909-87C8-677F340AC1E5}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|x64 = Debug|x64
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{FAABBDE7-B5B2-4909-87C8-677F340AC1E5}.Debug|x64.ActiveCfg = Debug|x64
+		{FAABBDE7-B5B2-4909-87C8-677F340AC1E5}.Debug|x64.Build.0 = Debug|x64
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {E567A9C0-3F1D-4DB6-A549-18FBCB5687A1}
+	EndGlobalSection
+EndGlobal

@@ -44,6 +44,7 @@ namespace IngameScript
 		// ==== END CONFIG ====
 		#endregion
 
+		static Program prg;
 		const double deg2rad = Math.PI / 180.0;
 		const double rad2deg = 180.0 / Math.PI;
 		const double MANEUVER_SENSITIVITY = 1;
@@ -94,7 +95,11 @@ namespace IngameScript
 		};*/
 
 		double TorqueToMassRatio = 1.0;
-		Orbit orb = new Orbit();
+		Orbit orb = new Orbit(
+			new Vector3D(1,0,0), // equinox
+			new Vector3D(0,0,1), // east
+			new Vector3D(0,-1,0) // north
+			);
 		bool keep;
 		double keepAp;
 		double keepPe;
@@ -111,6 +116,9 @@ namespace IngameScript
 		static double get0() { return 0; }
 		getd mGetDelay = get0;
 		getd mGetTargetVel = get0;
+		double mTargetVel;
+		//double mTargetAp;
+		//double mTargetPe;
 		double prevFrameSpeed;
 		uint mFrameStartedBurn;
 		Base6Directions.Direction mThrustDir = Base6Directions.Direction.Backward;
@@ -118,6 +126,7 @@ namespace IngameScript
 		List<IMyShipController> shipControllers = new List<IMyShipController>();
 		public Program()
 		{
+			prg = this;
 			G = GridTerminalSystem;
 			cockpit = G.GetBlockWithName(ControlBlock) as IMyShipController;
 			if (cockpit == null)
@@ -246,7 +255,7 @@ namespace IngameScript
 					//const double GravConst = 6.674e-11; // TODO: Move up
 					orb.UpdateFromPosVel(posRtPlanet, vel, mu);
 
-					Echo($"r = {r}");
+					Echo($"r = {r:F0}");
 					//Echo($"mu: {mu}");
 					//Echo($"SMA: {orb.a}");
 					//Echo($"Ecc: {orb.e}");
@@ -262,8 +271,8 @@ namespace IngameScript
 					Echo($"Period: {timestr(orb.T)}");
 					//Echo($"Time since Pe:{orb.tpe:F2}");
 					Echo($"Maneuver {mstat}");
-					if (mstat == ManeuverStatus.PLANNED) { Echo($"Burn in {mGetDelay():F0}s"); }
-					if (mstat == ManeuverStatus.RUNNING) { Echo($"spd {cockpit.GetShipSpeed():F0} / {mGetTargetVel():F0}"); }
+					if (mstat == ManeuverStatus.PLANNED) { Echo($"Burn in {timestr(mGetDelay())}"); }
+					if (mstat == ManeuverStatus.RUNNING) { Echo($"Vel {cockpit.GetShipSpeed():F0} / {mGetTargetVel():F0}"); }
 					//Echo($"to Ap:")
 
 					// TODO:
@@ -344,7 +353,7 @@ namespace IngameScript
 					{
 						double dv = (cockpit.GetShipSpeed() - prevFrameSpeed) * 60;
 						Echo($"dv = {dv:F6}");
-						double dTarget = mGetTargetVel() - cockpit.GetShipSpeed();
+						double dTarget = mTargetVel - cockpit.GetShipSpeed();
 						Echo($"dTarget = {dTarget:F6}");
 						// 724 - 901 = -180 ish
 						UpdateThrust();
@@ -358,7 +367,7 @@ namespace IngameScript
 						//}
 						// On the first frame we don't know what previous velocity would be doing. Give it some warm up time.
 						SetThrust(mThrustDir, (dTarget / dv / THROTTLE_BACK_TIME) + MINIMUM_THRUST);
-						if ((frameNum - mFrameStartedBurn >= 2) && (dv * dTarget < 0)) // TODO: Lower number, debugging
+						if ((frameNum - mFrameStartedBurn >= 2) && (dv * dTarget < 0))
 						{
 							StopThrust();
 							mstat = ManeuverStatus.IDLE;
@@ -376,6 +385,7 @@ namespace IngameScript
 							//UpdateThrust();
 							//Base6Directions.GetOppositeDirection
 							//SetThrust(mThrustDir, 1);
+							mTargetVel = mGetTargetVel();
 							mstat = ManeuverStatus.RUNNING;
 							mFrameStartedBurn = frameNum;
 						}
@@ -383,6 +393,7 @@ namespace IngameScript
 					}
 					else if (keep)
 					{
+						Echo($"Keep: {keepAp:F0} - {keepPe:F0} +/- {ORBIT_PRECISION:F0}");
 						UpdateOrbit();
 						double ttap = orb.TimeToAp();
 						double ttpe = orb.TimeToPe();
@@ -390,8 +401,9 @@ namespace IngameScript
 						//double vPredict;
 						//Echo($"time to Ap: {ttap:F2}");
 						//Echo($"time to Pe: {ttpe:F2}");
-						if ((orb.Ap < keepAp - ORBIT_PRECISION && orb.Pe < keepPe - ORBIT_PRECISION) ||
-							(orb.Ap > keepAp + ORBIT_PRECISION && orb.Pe > keepPe + ORBIT_PRECISION))
+						if ((orb.Ap < keepAp - ORBIT_PRECISION && orb.Pe < keepPe - ORBIT_PRECISION)
+							//|| (orb.Ap > keepAp + ORBIT_PRECISION && orb.Pe > keepPe + ORBIT_PRECISION)
+							)
 						{
 							mGetDelay = () => 0;
 							//mGetTargetAp = () => keepAp;
@@ -409,6 +421,8 @@ namespace IngameScript
 								//vPredict = orb.GetPosVelAtEccentricAnomaly(Math.PI).vel.Length();
 								//ScheduleProgradeManeuver(DateTime.Now + TimeSpan.FromSeconds(ttap), vTarget);
 								mGetDelay = () => orb.TimeToAp();
+								//mTargetAp = orb.Ap;
+								//mTargetPe = keepPe;
 								mGetTargetVel = () => Orbit.RequiredVelocity(orb.Ap, keepPe, planetMe.Length(), orb.Mu);
 								mstat = ManeuverStatus.PLANNED;
 							}
@@ -578,36 +592,48 @@ namespace IngameScript
 				{
 					mode = Mode.Prograde;
 					mstat = ManeuverStatus.IDLE;
+					keep = false;
+					StopThrust();
 					Runtime.UpdateFrequency = UpdateFrequency.Update1;
 				}
 				else if (arg.StartsWith("ret"))
 				{
 					mode = Mode.Retrograde;
 					mstat = ManeuverStatus.IDLE;
+					keep = false;
+					StopThrust();
 					Runtime.UpdateFrequency = UpdateFrequency.Update1;
 				}
 				else if (arg.StartsWith("nor"))
 				{
 					mode = Mode.Normal;
 					mstat = ManeuverStatus.IDLE;
+					keep = false;
+					StopThrust();
 					Runtime.UpdateFrequency = UpdateFrequency.Update1;
 				}
 				else if (arg.StartsWith("ant"))
 				{
 					mode = Mode.Antinormal;
 					mstat = ManeuverStatus.IDLE;
+					keep = false;
+					StopThrust();
 					Runtime.UpdateFrequency = UpdateFrequency.Update1;
 				}
 				else if (arg.StartsWith("in"))
 				{
 					mode = Mode.RadialIn;
 					mstat = ManeuverStatus.IDLE;
+					keep = false;
+					StopThrust();
 					Runtime.UpdateFrequency = UpdateFrequency.Update1;
 				}
 				else if (arg.StartsWith("out"))
 				{
 					mode = Mode.RadialOut;
 					mstat = ManeuverStatus.IDLE;
+					keep = false;
+					StopThrust();
 					Runtime.UpdateFrequency = UpdateFrequency.Update1;
 				}
 				else if (arg.StartsWith("off") || arg.StartsWith("stop"))
@@ -636,6 +662,8 @@ namespace IngameScript
 					Stop();
 					mode = Mode.DisplayOnly;
 					mstat = ManeuverStatus.IDLE;
+					keep = false;
+					StopThrust();
 					Runtime.UpdateFrequency = UpdateFrequency.Update1;
 				}
 				else if (arg.StartsWith("keep"))
@@ -661,6 +689,7 @@ namespace IngameScript
 					}
 					else if (sp.Length == 2)
 					{
+						double tmpd;
 						if (sp[1] == "on")
 						{
 							Echo("keep on");
@@ -694,6 +723,13 @@ namespace IngameScript
 								StopThrust();
 								mstat = ManeuverStatus.IDLE;
 							}
+						}
+						else if (double.TryParse(sp[1], out tmpd))
+						{
+							Echo("keep on");
+							keep = true;
+							keepAp = keepPe = tmpd;
+							mode = Mode.Prograde;
 						}
 					}
 					else if (sp.Length == 1)
@@ -749,6 +785,9 @@ namespace IngameScript
 		public static string timestr(TimeSpan t) { return $"{t.Hours:00}:{t.Minutes:00}:{t.Seconds:00}"; }
 		public static string timestr(double seconds)
 		{
+			if (double.IsNaN(seconds)) { return "(NaN)"; }
+			if (double.IsNegativeInfinity(seconds)) { return "(-infinity)"; }
+			if (double.IsPositiveInfinity(seconds)) { return "(+infinity)"; }
 			TimeSpan t = TimeSpan.FromSeconds(seconds);
 			return $"{t.Hours:00}:{t.Minutes:00}:{t.Seconds:00}";
 		}
@@ -1293,8 +1332,20 @@ namespace IngameScript
 			public double Ap, Pe, T, b, Area, M, Ea, nMeanMotion, tpe, c, Mu;
 			public Vector3D normal;
 			public DateTime epoch;
+
+			public Vector3D equinox = new Vector3D(1,0,0);
+			public Vector3D eastOfEquinox = new Vector3D(0, 1, 0);
+			public Vector3D north = new Vector3D(0, 0, 1);
+
 			//public MatrixD transform;
 			public Vector3D basis_x, basis_y, basis_z; // convert from ellipse calculations in the x/y plane to 3d planet space
+			public Orbit() { }
+			public Orbit(Vector3D vEquinox, Vector3D vEastOfEquinox, Vector3D vNorth)
+			{
+				equinox = vEquinox;
+				eastOfEquinox = vEastOfEquinox;
+				north = vNorth;
+			}
 			static Vector3D mul(double s, Vector3 v)
 			{
 				return new Vector3(s * v.X, s * v.Y, s * v.Z);
@@ -1321,8 +1372,8 @@ namespace IngameScript
 			}
 
 			public void UpdateFromPosVel(
-					Vector3D rv /*radial vector (position)*/,
-					Vector3D vv /*velocity vector*/,
+					Vector3D pos /*radial vector (position)*/,
+					Vector3D vel /*velocity vector*/,
 					double mu /* mu = GM, units m^3 s^-2, gravitational constant times mass of planet in kg, or, acceleration due to gravity * r^2 */
 				)
 
@@ -1332,6 +1383,14 @@ namespace IngameScript
 			//PQ G = 6.6743015e-14 * 1_N * 1_m * 1_m / 1_kg / 1_kg
 			{
 				//Orbit q = new Orbit();
+				//Vector3D rvbak = rv;
+				//Vector3D vvbak = vv;
+				Vector3D rv = new Vector3D(pos.Dot(equinox), pos.Dot(eastOfEquinox), pos.Dot(north));
+				Vector3D vv = new Vector3D(vel.Dot(equinox), vel.Dot(eastOfEquinox), vel.Dot(north));
+
+				//prg.Echo($"rv: ({rv.X:F0},{rv.Y:F0},{rv.Z:F0})");
+				//prg.Echo($"vv: ({vv.X:F0},{vv.Y:F0},{vv.Z:F0})");
+
 
 				this.Mu = mu;
 
@@ -1422,6 +1481,7 @@ namespace IngameScript
 					Vector3D van = new Vector3D(Math.Cos(Om), Math.Sin(Om), 0); // ascending node vector
 					Vector3D vpe = qpe * van; // i/x basis will be major axis
 					Vector3D vlat = -(vpe.Cross(normal)); // j/y basis will be parallel to latus rectum, minor axis, and directrix
+
 					basis_x = vpe; basis_x.Normalize();
 					basis_y = vlat; basis_y.Normalize();
 					basis_z = normal; basis_z.Normalize();
@@ -1625,7 +1685,9 @@ namespace IngameScript
 				double x = r * cosE;
 				double y = r * sinE;
 				// TODO: Translate from focus to center
-				return (x * basis_x) + (y * basis_y);
+				Vector3D local = (x * basis_x) + (y * basis_y);
+				Vector3D ret = (local.X * equinox) + (local.Y * eastOfEquinox) + (local.Z * north);
+				return ret;
 			}
 			public PosVel GetPosVelAtEccentricAnomaly(double E)
 			{

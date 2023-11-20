@@ -24,6 +24,9 @@
     <Prefer32Bit>true</Prefer32Bit>
     <LangVersion>6</LangVersion>
   </PropertyGroup>
+  <PropertyGroup>
+    <StartupObject>IngameScript.MDK.TestBootstrapper</StartupObject>
+  </PropertyGroup>
   <ItemGroup>
     <Reference Include="netstandard" />
     <Reference Include="System" />

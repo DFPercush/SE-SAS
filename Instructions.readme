@@ -1,25 +1,39 @@
 ﻿==== SAS ====
 Stability Assist System
-Maintain orientation while in orbit.
+orbital tools
 
 Author: DFPercush
-github.com/DFPercush
-Buy me a coffee: ko-fi.com/DFPercush
+Source code: github.com/DFPercush/SE-SAS
+Feed the programmer: ko-fi.com/DFPercush
 
-To use:
-See below and set 'ControlBlock' to the name of your
-cockpit, remote control, flight seat, helm, etc.
-Make sure your craft has some gyros and power, and
-you should be good to go.
+Setup:
+If you want to use a cockpit besides the main one as the reference,
+set 'ControlBlock' below. Make sure your craft has some gyros,
+power, and forward/back thrusters for station keeping. That's about it.
 
 Commands:
+
 off / stop:          Halt program and turn off gyro overrides.
+
 pro / prograde:      The direction your ship is moving. Forward.
+
 retro / retrograde:  Facing backwards along your direction of movement.
+
 norm / normal:       Perpendicular to the plane of your orbit.
                      If you are moving east, normal would be north.
+
 anti / antinormal:   Opposite normal. If moving east, antinormal is south.
+
 out:                 Radial out. Facing perpendicular to your orbit but
                      in the same plane. Basically, away from the planet.
+
 in:                  Radial in. Towards the ground.
+
 disp:                Display debugging information.
+
+keep:                Maintains a certain min and max altitude.
+    (no args)            Toggle on/off. Maintain the current orbit.
+    [number]             Maintain a circular orbit of [number] height,
+                         in meters, from the center of the planet.
+    [max] [min]          Maintain an orbit of apogee [max] and perigee [min].
+    on|off|toggle        Enable or disable this mode.

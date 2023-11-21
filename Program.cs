@@ -32,14 +32,21 @@ namespace IngameScript
 
 		#region MDK Preserve
 		// ==== CONFIG ====
+
 		// This is probably the only thing you'll need to change
 		const string ControlBlock = "Cockpit";
 
 		readonly Vector3D cockpitLocalForward = new Vector3D (0, 0, -1);
 		readonly Vector3D cockpitLocalUp = new Vector3D (0, 1, 0);
 		readonly Vector3D cockpitLocalRight = new Vector3D (1, 0, 0);
-		const double BaseGyroSensitivity = 0.2;
+		const double BaseGyroSensitivity = 0.02;
 		const double TorquePerGyroMultiplier = 60000;
+
+		const double MANEUVER_SENSITIVITY = 1;
+		const double ORBIT_PRECISION = 500.0; // How far off can the altitude be
+		const double THROTTLE_BACK_TIME = 2.0; // Seconds before burn completes to start fine adjustment
+		const double MINIMUM_THRUST = 0.01; // Must be > 0, in the range (0, 1]
+		const double ROLL_SPEED = 6.0;
 
 		// ==== END CONFIG ====
 		#endregion
@@ -47,10 +54,6 @@ namespace IngameScript
 		static Program prg;
 		const double deg2rad = Math.PI / 180.0;
 		const double rad2deg = 180.0 / Math.PI;
-		const double MANEUVER_SENSITIVITY = 1;
-		const double ORBIT_PRECISION = 500.0; // How far off can the altitude be
-		const double THROTTLE_BACK_TIME = 2.0; // Seconds before burn completes to start fine adjustment
-		const double MINIMUM_THRUST = 0.01; // Must be > 0, in the range (0, 1]
 		enum Mode
 		{
 			Disabled,
@@ -162,7 +165,7 @@ namespace IngameScript
 			pidYaw = new PID
 			{
 				Kp = K,
-				Ki = K * 0.5,
+				Ki = K * 0.05,
 				Kd = 0, //K * 0.5,
 				limMin = -K * 10,
 				limMax = K * 10,
@@ -332,7 +335,7 @@ namespace IngameScript
 				//pidPitch.Update((angleDiff - 90) * dPitch);
 				pidYaw.Update(Math.Sign(angleDiff - 90) * angleDiff * dYaw);
 				pidPitch.Update(Math.Sign(angleDiff - 90) * angleDiff * dPitch);
-				if (mode != Mode.DisplayOnly)
+				if (mode != Mode.DisplayOnly && mode != Mode.Disabled)
 				{
 					foreach (var g in gyt)
 					{
@@ -341,6 +344,8 @@ namespace IngameScript
 						g.setPitch(g.g, pidPitch.Output);
 						//g.setYaw(g.g, angleDiff * dYaw * BaseGyroSensitivity);
 						//g.setPitch(g.g, angleDiff * dPitch * BaseGyroSensitivity);
+
+						g.setRoll(g.g, cockpit.RollIndicator * ROLL_SPEED);
 					}
 				}
 
@@ -349,12 +354,15 @@ namespace IngameScript
 
 				if (validOrbit)
 				{
+					if (keep) { Echo($"Keep: {keepAp:F0} - {keepPe:F0} +/- {ORBIT_PRECISION:F0}"); }
+
 					if (mstat == ManeuverStatus.RUNNING)
 					{
 						double dv = (cockpit.GetShipSpeed() - prevFrameSpeed) * 60;
-						Echo($"dv = {dv:F6}");
+						//Echo($"dv = {dv:F6}");
 						double dTarget = mTargetVel - cockpit.GetShipSpeed();
-						Echo($"dTarget = {dTarget:F6}");
+						//Echo($"dTarget = {dTarget:F6}");
+						Echo($"Vel {cockpit.GetShipSpeed():F0} -> {mTargetVel}");
 						// 724 - 901 = -180 ish
 						UpdateThrust();
 						//Echo($"Thrusters: {dirThrust[mThrustDir].Count} {mThrustDir}");
@@ -366,8 +374,13 @@ namespace IngameScript
 						//	}
 						//}
 						// On the first frame we don't know what previous velocity would be doing. Give it some warm up time.
-						SetThrust(mThrustDir, (dTarget / dv / THROTTLE_BACK_TIME) + MINIMUM_THRUST);
-						if ((frameNum - mFrameStartedBurn >= 2) && (dv * dTarget < 0))
+						if ((mThrustDir == Base6Directions.Direction.Forward && dTarget > 0) ||
+							(mThrustDir == Base6Directions.Direction.Backward && dTarget < 0))
+						{
+							SetThrust(mThrustDir, (dTarget / dv / THROTTLE_BACK_TIME) + MINIMUM_THRUST);
+						}
+						//if ((frameNum - mFrameStartedBurn >= 2) && (dv * dTarget < 0))
+						else
 						{
 							StopThrust();
 							mstat = ManeuverStatus.IDLE;
@@ -377,6 +390,7 @@ namespace IngameScript
 					{
 						//UpdateThrust();
 						//if (DateTime.Now >= mstart)
+						mGetTargetVel(); // TODO: Debug remove
 						if (mGetDelay() < THROTTLE_BACK_TIME)
 						{
 							//mThrustDir = (mTargetSpeed > cockpit.GetShipSpeed()) ? Base6Directions.Direction.Backward : Base6Directions.Direction.Forward;
@@ -393,7 +407,6 @@ namespace IngameScript
 					}
 					else if (keep)
 					{
-						Echo($"Keep: {keepAp:F0} - {keepPe:F0} +/- {ORBIT_PRECISION:F0}");
 						UpdateOrbit();
 						double ttap = orb.TimeToAp();
 						double ttpe = orb.TimeToPe();
@@ -423,7 +436,14 @@ namespace IngameScript
 								mGetDelay = () => orb.TimeToAp();
 								//mTargetAp = orb.Ap;
 								//mTargetPe = keepPe;
-								mGetTargetVel = () => Orbit.RequiredVelocity(orb.Ap, keepPe, planetMe.Length(), orb.Mu);
+								mGetTargetVel = () =>
+								{
+									Echo($"Man Ap {orb.Ap:F0} + kPe {keepPe:F0} = {orb.Ap + keepPe:F0}");
+									Echo($"Man r {GetShipPosRTPlanet().Length():F0}");
+									double vel = Orbit.RequiredVelocity(orb.Ap, keepPe, GetShipPosRTPlanet().Length(), orb.Mu);
+									Echo($"Man vel {cockpit.GetShipSpeed():F0} -> {vel:F0}");
+									return vel;
+								};
 								mstat = ManeuverStatus.PLANNED;
 							}
 						}
@@ -436,7 +456,14 @@ namespace IngameScript
 								//vPredict = orb.GetPosVelAtEccentricAnomaly(0).vel.Length();
 								//ScheduleProgradeManeuver(DateTime.Now + TimeSpan.FromSeconds(ttpe), vTarget);
 								mGetDelay = () => orb.TimeToPe();
-								mGetTargetVel = () => Orbit.RequiredVelocity(keepAp, orb.Pe, planetMe.Length(), orb.Mu);
+								mGetTargetVel = () =>
+								{
+									Echo($"M tgt kAp {keepAp:F0} + Pe {orb.Pe:F0} = {keepAp + orb.Pe:F0}");
+									Echo($"M r {GetShipPosRTPlanet().Length():F0}");
+									double vel = Orbit.RequiredVelocity(keepAp, orb.Pe, GetShipPosRTPlanet().Length(), orb.Mu);
+									Echo($"Man vel {cockpit.GetShipSpeed():F0} -> {vel:F0}");
+									return vel;
+								};
 								mstat = ManeuverStatus.PLANNED;
 							}
 						}
@@ -811,10 +838,17 @@ namespace IngameScript
 			orbitUpdatedFrame = frameNum;
 		}
 
-		// Pretty Print Vector
-		string ppv(Vector3D v)
+		Vector3D GetShipPosRTPlanet()
 		{
-			return $"({Math.Round(v.X, 2)}, {Math.Round(v.Y, 2)}, {Math.Round(v.Z, 2)})";
+			Vector3D pp;
+			if (!cockpit.TryGetPlanetPosition(out pp)) { return new Vector3D(0, 0, 0); }
+			return cockpit.CenterOfMass - pp;
+		}
+
+		// Pretty Print Vector
+		string ppv(Vector3D v, int rounding = 2)
+		{
+			return $"({Math.Round(v.X, rounding)}, {Math.Round(v.Y, rounding)}, {Math.Round(v.Z, rounding)})";
 		}
 		void asn(ref QuaternionD q, Vector3D v)
 		{

@@ -8,8 +8,13 @@ Feed the programmer: ko-fi.com/DFPercush
 
 Setup:
 If you want to use a cockpit besides the main one as the reference,
-set 'ControlBlock' below. Make sure your craft has some gyros,
-power, and forward/back thrusters for station keeping. That's about it.
+set 'DefaultControlBlock' below. Or use the 'control' command to set.
+Make sure your craft has some gyros, power, and enable forward/back
+thrusters for station keeping. That's about it.
+
+Update: While locked to any direction, you can still give roll commands
+by using Q and E from the active cockpit or control block. This may
+only work from that one cockpit.
 
 Commands:
 
@@ -37,3 +42,5 @@ keep:                Maintains a certain min and max altitude.
                          in meters, from the center of the planet.
     [max] [min]          Maintain an orbit of apogee [max] and perigee [min].
     on|off|toggle        Enable or disable this mode.
+
+control [block]      Sets the active cockpit, remote control, or ship controller.

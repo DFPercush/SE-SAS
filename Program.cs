@@ -30,23 +30,25 @@ namespace IngameScript
 	public partial class Program : MyGridProgram
 	{
 
-		#region MDK Preserve
+		#region mdk preserve
 		// ==== CONFIG ====
 
 		// This is probably the only thing you'll need to change
-		const string ControlBlock = "Cockpit";
+		const string DefaultControlBlock = "Cockpit";
 
-		readonly Vector3D cockpitLocalForward = new Vector3D (0, 0, -1);
-		readonly Vector3D cockpitLocalUp = new Vector3D (0, 1, 0);
-		readonly Vector3D cockpitLocalRight = new Vector3D (1, 0, 0);
-		const double BaseGyroSensitivity = 0.02;
-		const double TorquePerGyroMultiplier = 60000;
+		const double BaseGyroSensitivity = 0.05;  // Controls how "twitchy" your craft spins
+		const double TorquePerGyroMultiplier = 60000;  // Best guess at SE's physics
 
-		const double MANEUVER_SENSITIVITY = 1;
-		const double ORBIT_PRECISION = 500.0; // How far off can the altitude be
+		const double ORBIT_PRECISION = 500.0; // How far off can the altitude be before a correction burn is scheduled.
 		const double THROTTLE_BACK_TIME = 2.0; // Seconds before burn completes to start fine adjustment
 		const double MINIMUM_THRUST = 0.01; // Must be > 0, in the range (0, 1]
-		const double ROLL_SPEED = 6.0;
+		const double MAX_THRUST = 1.0;  // 0-1 multiplier for thrust override
+		const double ROLL_SPEED = 6.0;  // Target RPM of roll inputs while direction locked.
+
+		// Should not change unless using custom models with different coordinate system.
+		readonly Vector3D cockpitLocalForward = new Vector3D(0, 0, -1);
+		readonly Vector3D cockpitLocalUp = new Vector3D(0, 1, 0);
+		readonly Vector3D cockpitLocalRight = new Vector3D(1, 0, 0);
 
 		// ==== END CONFIG ====
 		#endregion
@@ -125,30 +127,66 @@ namespace IngameScript
 		double prevFrameSpeed;
 		uint mFrameStartedBurn;
 		Base6Directions.Direction mThrustDir = Base6Directions.Direction.Backward;
+		string ControlBlock = DefaultControlBlock;
 
 		List<IMyShipController> shipControllers = new List<IMyShipController>();
-		public Program()
+
+		public void FindCockpit()
 		{
-			prg = this;
-			G = GridTerminalSystem;
 			cockpit = G.GetBlockWithName(ControlBlock) as IMyShipController;
-			if (cockpit == null)
+			if (cockpit == null || !(cockpit is IMyShipController))
 			{
 				G.GetBlocksOfType(shipControllers);
 				foreach (var sc in shipControllers)
 				{
 					if (sc.IsMainCockpit)
 					{
+						Echo($"Warning: Control block '{ControlBlock}' not found.");
+						Echo($"...Falling back to default main cockpit '{sc.CustomName}'.");
+						Echo("Use 'control [block]' to change setting.");
 						cockpit = sc;
 						break;
 					}
 				}
+				if (cockpit == null && shipControllers.Count > 0)
+				{
+					cockpit = shipControllers[0];
+					Echo($"Warning: Control block '{ControlBlock}' not found.");
+					Echo($"...Falling back to default main cockpit '{cockpit.CustomName}'.");
+					Echo("Use 'control [block]' to change setting.");
+				}
 				if (cockpit == null)
 				{
 					Echo("Error: No ship control block found.");
-					return;
+					throw new NullReferenceException("Cockpit or ship controller not found.");
 				}
 			}
+		}
+		public Program()
+		{
+			prg = this;
+			G = GridTerminalSystem;
+
+			// Load settings from last save
+			var lines = Storage.Split('\n');
+			foreach (var line in lines)
+			{
+				var sp = line.Split('=');
+				if (sp.Length != 2) { continue; }
+				switch (sp[0])
+				{
+					//Storage = $"mode={mode}\nkeep={keep}\nkeepApo={keepApo}\nkeepPeri={keepPeri}";
+					case "mode": mode = (Mode)Enum.Parse(typeof(Mode), sp[1]); break;
+					case "keep": keep = bool.Parse(sp[1]); break;
+					case "keepApo": keepAp = double.Parse(sp[1]); break;
+					case "keepPeri": keepPe = double.Parse(sp[1]); break;
+					case "ControlBlock": ControlBlock = line.Substring(13); break;
+					default: Echo($"Warning: Unknown data saved in storage: {line}"); break;
+				}
+			}
+
+			// Set up blocks
+			FindCockpit();
 			FindGyros(cockpit);
 			if (gyros.Count == 0)
 			{
@@ -189,28 +227,13 @@ namespace IngameScript
 				setpoint = 0
 			};
 
-			var lines = Storage.Split('\n');
-			foreach (var line in lines)
-			{
-				var sp = line.Split('=');
-				if (sp.Length != 2) { continue; }
-				switch (sp[0])
-				{
-					//Storage = $"mode={mode}\nkeep={keep}\nkeepApo={keepApo}\nkeepPeri={keepPeri}";
-					case "mode": mode = (Mode)Enum.Parse(typeof(Mode), sp[1]); break;
-					case "keep": keep = bool.Parse(sp[1]); break;
-					case "keepApo": keepAp = double.Parse(sp[1]); break;
-					case "keepPeri": keepPe = double.Parse(sp[1]); break;
-					default: Echo($"Warning: Unknown data saved in storage: {line}"); break;
-				}
-			}
 			if (mode != Mode.Disabled) { Runtime.UpdateFrequency = UpdateFrequency.Update1; }
 			else { Runtime.UpdateFrequency = UpdateFrequency.None; }
 		} // constructor
 
 		public void Save()
 		{
-			Storage = $"mode={mode}\nkeep={keep}\nkeepApo={keepAp}\nkeepPeri={keepPe}";
+			Storage = $"mode={mode}\nkeep={keep}\nkeepApo={keepAp}\nkeepPeri={keepPe}\nControlBlock={ControlBlock}";
 		} // Save
 
 		//public void ScheduleProgradeManeuver(DateTime when, double targetVel)
@@ -438,10 +461,10 @@ namespace IngameScript
 								//mTargetPe = keepPe;
 								mGetTargetVel = () =>
 								{
-									Echo($"Man Ap {orb.Ap:F0} + kPe {keepPe:F0} = {orb.Ap + keepPe:F0}");
-									Echo($"Man r {GetShipPosRTPlanet().Length():F0}");
+									//Echo($"Man Ap {orb.Ap:F0} + kPe {keepPe:F0} = {orb.Ap + keepPe:F0}");
+									//Echo($"Man r {GetShipPosRTPlanet().Length():F0}");
 									double vel = Orbit.RequiredVelocity(orb.Ap, keepPe, GetShipPosRTPlanet().Length(), orb.Mu);
-									Echo($"Man vel {cockpit.GetShipSpeed():F0} -> {vel:F0}");
+									//Echo($"Man vel {cockpit.GetShipSpeed():F0} -> {vel:F0}");
 									return vel;
 								};
 								mstat = ManeuverStatus.PLANNED;
@@ -458,10 +481,10 @@ namespace IngameScript
 								mGetDelay = () => orb.TimeToPe();
 								mGetTargetVel = () =>
 								{
-									Echo($"M tgt kAp {keepAp:F0} + Pe {orb.Pe:F0} = {keepAp + orb.Pe:F0}");
-									Echo($"M r {GetShipPosRTPlanet().Length():F0}");
+									//Echo($"M tgt kAp {keepAp:F0} + Pe {orb.Pe:F0} = {keepAp + orb.Pe:F0}");
+									//Echo($"M r {GetShipPosRTPlanet().Length():F0}");
 									double vel = Orbit.RequiredVelocity(keepAp, orb.Pe, GetShipPosRTPlanet().Length(), orb.Mu);
-									Echo($"Man vel {cockpit.GetShipSpeed():F0} -> {vel:F0}");
+									//Echo($"Man vel {cockpit.GetShipSpeed():F0} -> {vel:F0}");
 									return vel;
 								};
 								mstat = ManeuverStatus.PLANNED;
@@ -666,6 +689,11 @@ namespace IngameScript
 				else if (arg.StartsWith("off") || arg.StartsWith("stop"))
 				{
 					Stop();
+				}
+				else if (arg.StartsWith("control "))
+				{
+					ControlBlock = arg.Substring(8);
+					FindCockpit();
 				}
 				// Debug testing commands
 				else if (arg=="right")
@@ -906,7 +934,7 @@ namespace IngameScript
 		}
 		void SetThrust(Base6Directions.Direction dir, double overrideFactor)
 		{
-			overrideFactor = Math.Max(0, Math.Min(1, overrideFactor));
+			overrideFactor = Math.Max(0, Math.Min(MAX_THRUST, overrideFactor));
 			UpdateThrust();
 			//Echo($"{dirThrust[dir].Count} {dir} thrusters");
 			foreach (var t in dirThrust[dir])
